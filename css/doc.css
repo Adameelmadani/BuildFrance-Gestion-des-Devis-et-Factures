@@ -1,0 +1,112 @@
+/* Gabarits A4 - devis & factures Build France */
+.sheet {
+  position: relative;
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 0 19mm 22mm 18mm;
+  background: #fff;
+  color: #000;
+  font-family: "Times New Roman", Tinos, "Liberation Serif", Times, serif;
+  font-size: 10.5pt;
+  line-height: 1.25;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.sheet *, .sheet *::before, .sheet *::after { box-sizing: border-box; }
+.sheet b { font-weight: 700; }
+
+.sheet-foot {
+  position: absolute; left: 0; right: 0; bottom: 9mm;
+  text-align: center;
+  font-family: Calibri, Carlito, "Segoe UI", Arial, sans-serif;
+  font-weight: 700; font-size: 9.5pt;
+  padding: 0 12mm;
+}
+.sheet-foot-light { font-weight: 400; font-size: 9pt; }
+
+/* ---------- tableau des ouvrages (commun) ---------- */
+.lines { border: 1.6px solid #000; }
+.l-head, .l-row {
+  display: grid;
+  grid-template-columns: 1fr var(--wu) var(--wqt) var(--wpu) var(--wtot);
+}
+.l-head { font-weight: 700; font-size: 9.5pt; text-align: center; border-bottom: 1.6px solid #000; }
+.l-head > div { padding: 1.2mm 1mm; border-left: 1px solid #000; display: flex; align-items: center; justify-content: center; }
+.l-head .c-des { grid-row: 1 / 3; border-left: 0; align-items: flex-start; }
+.l-head .c-u, .l-head .c-qt { grid-row: 1 / 3; align-items: flex-start; }
+.l-head .c-pv { grid-column: 4 / 6; border-bottom: 1px solid #000; }
+.l-head .sub { grid-row: 2; font-size: 8.5pt; }
+.l-head .c-pu.sub { grid-column: 4; }
+.l-head .c-tot.sub { grid-column: 5; }
+
+.l-body { position: relative; }
+.l-body .v { position: absolute; top: 0; bottom: 0; border-left: 1px solid #000; }
+.l-body .v1 { right: calc(var(--wu) + var(--wqt) + var(--wpu) + var(--wtot)); }
+.l-body .v2 { right: calc(var(--wqt) + var(--wpu) + var(--wtot)); }
+.l-body .v3 { right: calc(var(--wpu) + var(--wtot)); }
+.l-body .v4 { right: var(--wtot); }
+.l-row { position: relative; z-index: 1; }
+.l-row > div { padding: 2mm 1.2mm; }
+.l-row .c-des { font-weight: 700; padding-left: 1mm; padding-right: 2.5mm; }
+.l-row .c-u, .l-row .c-qt { text-align: center; }
+.l-row .c-pu, .l-row .c-tot { text-align: right; white-space: nowrap; }
+.l-row .c-tot { font-weight: 700; }
+
+/* ---------- DEVIS ---------- */
+.lines-devis { --wu: 10mm; --wqt: 13mm; --wpu: 22mm; --wtot: 25mm; margin-top: 2mm; }
+.lines-devis .l-head { background: #ddd9c3; }
+.lines-devis .l-body { min-height: 100mm; }
+.lines-devis .l-row { padding-top: 4mm; }
+.lines-devis .l-row .c-u, .lines-devis .l-row .c-qt, .lines-devis .l-row .c-pu, .lines-devis .l-row .c-tot { padding-top: 5.5mm; }
+
+.d-head { padding-top: 20mm; }
+.d-logo { display: block; width: 62mm; height: auto; margin-left: 1mm; }
+.d-company { margin-top: 4mm; font-size: 10pt; line-height: 1.3; padding-left: 2mm; }
+.d-meta { display: flex; justify-content: space-between; margin-top: 7mm; padding-left: 2mm; }
+.d-chantier { font-size: 10.5pt; max-width: 90mm; }
+.d-chantier .up { text-transform: uppercase; }
+.d-client { margin-top: 3mm; font-size: 9.5pt; line-height: 1.3; }
+.d-num { width: 64mm; font-size: 12pt; }
+.d-date { margin-top: 7mm; font-size: 11pt; }
+.d-meta + .lines { margin-top: 6mm; }
+
+.d-bottom { display: flex; justify-content: space-between; align-items: flex-start; gap: 6mm; }
+.d-cond { padding-top: 6mm; font-weight: 700; font-size: 8.5pt; line-height: 1.6; }
+.d-tot { border-collapse: collapse; width: calc(13mm + 22mm + 25mm); font-size: 11pt; flex: none; }
+.d-tot td { border: 1px solid #000; border-top: 0; padding: .4mm 1mm; }
+.d-tot td:first-child { width: calc(13mm + 22mm); }
+.d-tot td:last-child { text-align: right; white-space: nowrap; }
+.d-tot tr:first-child td { border-top: 1px solid #000; }
+.d-tot tr.strong td { font-weight: 700; border-width: 1.6px; }
+.d-sign { margin-top: 9mm; text-align: center; font-size: 12pt; }
+.d-sign p { margin: 0; }
+.d-sign-row { display: flex; justify-content: space-between; margin: 5mm 18mm 0; font-size: 10pt; color: #333; }
+
+/* ---------- FACTURE ---------- */
+.f-head { display: flex; align-items: flex-end; padding-top: 18mm; }
+.f-logo { width: 62mm; height: auto; display: block; margin-left: 3mm; }
+.f-title { margin-left: 22mm; margin-bottom: 7mm; font-size: 16pt; font-weight: 700; line-height: 1.2; }
+.f-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 4mm; padding-left: 3mm; }
+.f-company { font-weight: 700; font-size: 10pt; line-height: 1.3; }
+.f-date { width: 75mm; font-family: Calibri, Carlito, "Segoe UI", Arial, sans-serif; font-weight: 700; font-size: 9.5pt; }
+
+.f-box { width: 100%; margin-top: 18mm; border-collapse: collapse; table-layout: fixed; font-size: 10pt; }
+.f-box th { background: #f2f2f2; font-size: 12pt; padding: 3.5mm 2mm; border: 1px solid #000; }
+.f-box td { border: 1px solid #000; vertical-align: top; padding: 1.5mm 1mm 7mm; line-height: 1.35; }
+.f-box .todo { color: #b00; font-style: italic; }
+
+.f-h { font-size: 14pt; margin: 6mm 0 4mm 1mm; font-weight: 700; }
+.lines-facture { --wu: 11mm; --wqt: 11mm; --wpu: 22mm; --wtot: 25mm; border-width: 1px; }
+.lines-facture .l-head { background: #bfbfbf; border-bottom-width: 1px; }
+.lines-facture .l-body { min-height: 16mm; }
+.lines-facture .l-row > div { padding-top: 3mm; padding-bottom: 3mm; }
+
+.f-tot { width: 100%; border-collapse: collapse; margin-top: 1.5mm; border: 1px solid #000; font-weight: 700; font-size: 10pt; }
+.f-tot td { padding: .3mm 1mm; }
+.f-tot td:last-child { width: 25mm; text-align: right; border: 1px solid #000; white-space: nowrap; }
+.f-autoliq { margin: 3mm 0 0; font-weight: 700; font-size: 9.5pt; }
+.f-bank { margin-top: 5mm; font-size: 10pt; }
+
+.f-emetteur { margin-top: 26mm; font-size: 10.5pt; line-height: 1.35; padding-left: 1mm; }
+.f-mentions { margin: 4mm 0 0 1mm; font-size: 7.5pt; line-height: 1.35; color: #222; }
