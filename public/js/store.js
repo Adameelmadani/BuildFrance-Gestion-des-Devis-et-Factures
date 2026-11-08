@@ -1,9 +1,7 @@
-/* Build France - données, calculs, numérotation */
-window.BF = window.BF || {};
+/* Build France - données, calculs, numérotation
+   Fichier partagé : chargé par le navigateur (window.BF) et par le serveur Node (require). */
 (function (BF) {
   'use strict';
-
-  BF.KEY = 'buildfrance-gestion-v1';
 
   /* ---------- utilitaires ---------- */
   BF.uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -184,7 +182,7 @@ window.BF = window.BF || {};
     return BF.newDoc(state, doc.type, copy);
   };
 
-  /* ---------- persistance ---------- */
+  /* ---------- données de départ (premier démarrage du serveur, si SEED_DEMO=true) ---------- */
   BF.seed = () => {
     const state = { version: 1, tiretsOk: true, settings: BF.defaultSettings(), clients: [], documents: [] };
     const azza = {
@@ -209,35 +207,17 @@ window.BF = window.BF || {};
     return state;
   };
 
-  BF.load = () => {
-    try {
-      const raw = localStorage.getItem(BF.KEY);
-      if (raw) {
-        let st = JSON.parse(raw);
-        // Conversion unique : tirets longs « — » remplacés par « - » dans les données enregistrées
-        if (!st.tiretsOk) {
-          const fix = (v) => typeof v === 'string' ? v.replace(/—/g, '-')
-            : Array.isArray(v) ? v.map(fix)
-            : (v && typeof v === 'object') ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fix(x)]))
-            : v;
-          st = fix(st);
-          st.tiretsOk = true;
-          BF.save(st);
-        }
-        st.settings = Object.assign(BF.defaultSettings(), st.settings);
-        st.settings.company = Object.assign(BF.defaultSettings().company, st.settings.company);
-        st.clients = st.clients || [];
-        st.documents = st.documents || [];
-        return st;
-      }
-    } catch (e) { console.warn('Lecture impossible', e); }
-    const st = BF.seed();
-    BF.save(st);
-    return st;
-  };
+  /** Conversion des anciennes sauvegardes : tirets longs « — » remplacés par « - » */
+  BF.fixDashes = (v) => typeof v === 'string' ? v.replace(/—/g, '-')
+    : Array.isArray(v) ? v.map(BF.fixDashes)
+    : (v && typeof v === 'object') ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, BF.fixDashes(x)]))
+    : v;
 
-  BF.save = (state) => {
-    try { localStorage.setItem(BF.KEY, JSON.stringify(state)); return true; }
-    catch (e) { console.error(e); alert("Impossible d'enregistrer (stockage plein ?). Pensez à exporter une sauvegarde."); return false; }
+  /** Complète les paramètres enregistrés avec les valeurs par défaut */
+  BF.mergeSettings = (saved) => {
+    const def = BF.defaultSettings();
+    const s = Object.assign(def, saved || {});
+    s.company = Object.assign(BF.defaultSettings().company, (saved && saved.company) || {});
+    return s;
   };
-})(window.BF);
+})(typeof window !== 'undefined' ? (window.BF = window.BF || {}) : module.exports);

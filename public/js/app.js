@@ -7,15 +7,27 @@
   const f = BF.fmt;
   const main = $('#main');
 
-  let state = BF.load();
+  let state = null; // chargé depuis le serveur au démarrage
   let lastEditorId = null;
-  let saveTimer = null;
 
-  const persist = () => BF.save(state);
-  const persistSoon = (cb) => {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { persist(); if (cb) cb(); }, 350);
+  /* ---------- enregistrement sur le serveur ---------- */
+  const timers = new Map(); // enregistrements différés pendant la saisie : clé -> { t, fn }
+  const later = (key, fn, ms = 400) => {
+    const p = timers.get(key); if (p) clearTimeout(p.t);
+    timers.set(key, { fn, t: setTimeout(() => { timers.delete(key); fn(); }, ms) });
   };
+  /** Envoie tout de suite les enregistrements en attente */
+  const flush = () => {
+    const all = Array.from(timers.values()); timers.clear();
+    all.forEach((p) => { clearTimeout(p.t); p.fn(); });
+  };
+  const fail = (err) => {
+    console.error(err);
+    toast(`<b>Non enregistré</b> - ${e(err.message)}`, 8000);
+  };
+  /** Exécute une écriture ; en cas d'erreur, affiche un message et renvoie null */
+  const sync = (p) => p.catch((err) => { fail(err); return null; });
+
   const getDoc = (id) => state.documents.find((d) => d.id === id);
   const removeDoc = (id) => { state.documents = state.documents.filter((d) => d.id !== id); };
 
@@ -137,12 +149,27 @@
       const ac = $('input[name="fx-n"]:checked', dlg).value === 'acompte';
       const pct = ac ? Math.min(100, Math.max(1, BF.parseNum($('#fx-pct', dlg).value))) : 100;
       const fac = BF.devisToFacture(state, devis, { date: $('#fx-date', dlg).value || BF.todayISO(), pct });
-      if (['brouillon', 'envoye'].includes(devis.statut)) devis.statut = 'accepte';
-      persist();
-      location.hash = '#/doc/' + fac.id;
-      toast(`${docTitle(fac)} <b>${e(fac.numero)}</b> créée à partir du devis ${e(devis.numero)}.`);
+      if (['brouillon', 'envoye'].includes(devis.statut)) {
+        devis.statut = 'accepte'; devis.updatedAt = Date.now();
+        sync(BF.api.saveDoc(devis));
+      }
+      sync(BF.api.saveDoc(fac)).then((ok) => {
+        if (!ok) { removeDoc(fac.id); return; }
+        location.hash = '#/doc/' + fac.id;
+        toast(`${docTitle(fac)} <b>${e(fac.numero)}</b> créée à partir du devis ${e(devis.numero)}.`);
+      });
     };
     dlg.showModal();
+  }
+
+  /** Duplique un document, l'enregistre sur le serveur puis l'ouvre */
+  function duplicateDoc(d) {
+    const c = BF.duplicate(state, d);
+    sync(BF.api.saveDoc(c)).then((ok) => {
+      if (!ok) { removeDoc(c.id); return; }
+      location.hash = '#/doc/' + c.id;
+      toast(`Copie créée : ${e(c.numero)}`);
+    });
   }
 
   /* =========================================================
@@ -175,12 +202,12 @@
       if (v === 'delete') {
         removeDoc(doc.id);
         liees.forEach((x) => { x.devisId = null; });
-        persist();
+        sync(BF.api.deleteDoc(doc.id));
         toast(`${docTitle(doc)} ${e(doc.numero)} supprimé${isFact ? 'e' : ''}.`);
         done && done('deleted');
       } else if (v === 'annulee') {
         doc.statut = 'annulee'; doc.updatedAt = Date.now();
-        persist();
+        sync(BF.api.saveDoc(doc));
         toast(`Facture ${e(doc.numero)} marquée annulée.`);
         done && done('annulee');
       }
@@ -306,8 +333,8 @@
       const d = getDoc(b.dataset.id); if (!d) return;
       if (b.dataset.a === 'facturer') openFacturer(d);
       if (b.dataset.a === 'pdf') downloadPdf(d);
-      if (b.dataset.a === 'payee') { d.statut = 'payee'; d.updatedAt = Date.now(); persist(); draw(); toast(`Facture ${e(d.numero)} marquée payée.`); }
-      if (b.dataset.a === 'dup') { const c = BF.duplicate(state, d); persist(); location.hash = '#/doc/' + c.id; toast(`Copie créée : ${e(c.numero)}`); }
+      if (b.dataset.a === 'payee') { d.statut = 'payee'; d.updatedAt = Date.now(); sync(BF.api.saveDoc(d)); draw(); toast(`Facture ${e(d.numero)} marquée payée.`); }
+      if (b.dataset.a === 'dup') duplicateDoc(d);
       if (b.dataset.a === 'del') openDelete(d, () => draw());
     };
   }
@@ -478,17 +505,29 @@
 
     /* --- enregistrement --- */
     const savedEl = $('#ed-saved');
-    const touched = () => {
-      doc.updatedAt = Date.now();
-      savedEl.textContent = 'Enregistrement…';
-      savedEl.style.color = 'var(--muted)';
-      persistSoon(() => { savedEl.textContent = 'Enregistré'; savedEl.style.color = ''; });
-      refresh();
-    };
     const syncNumero = () => {
       $('#ed-numero').value = doc.numero;
       $('#ed-num').textContent = doc.numero;
       $('#crumb-num').textContent = doc.numero;
+    };
+    const saveNow = () => BF.api.saveDoc(doc).then(() => {
+      if (!savedEl.isConnected) return;
+      savedEl.textContent = 'Enregistré'; savedEl.style.color = '';
+      // Le serveur a attribué un autre numéro (déjà pris entre-temps par un autre poste)
+      if ($('#ed-num').textContent !== doc.numero) {
+        syncNumero(); refresh();
+        toast(`Numéro déjà utilisé : ce document devient le N° <b>${e(doc.numero)}</b>.`);
+      }
+    }).catch((err) => {
+      if (savedEl.isConnected) { savedEl.textContent = 'Non enregistré'; savedEl.style.color = 'var(--red)'; }
+      fail(err);
+    });
+    const touched = () => {
+      doc.updatedAt = Date.now();
+      savedEl.textContent = 'Enregistrement…';
+      savedEl.style.color = 'var(--muted)';
+      later('doc:' + doc.id, saveNow);
+      refresh();
     };
 
     const onEdit = (ev) => {
@@ -543,17 +582,19 @@
       if (a === 'saveclient') {
         if (!doc.client.nom.trim()) { toast('Indiquez au moins le nom du client.'); return; }
         const ex = state.clients.find((c) => c.nom.trim().toLowerCase() === doc.client.nom.trim().toLowerCase());
-        if (ex) Object.assign(ex, doc.client); else state.clients.push(Object.assign({ id: BF.uid(), email: '', tel: '' }, doc.client));
-        persist();
+        const cl = ex ? Object.assign(ex, doc.client) : Object.assign({ id: BF.uid(), email: '', tel: '' }, doc.client);
+        if (!ex) state.clients.push(cl);
         $('#ed-pick').innerHTML = clientOptions(doc.client.nom);
-        toast(ex ? 'Client mis à jour dans le carnet.' : 'Client ajouté au carnet.');
+        sync(BF.api.saveClient(cl)).then((ok) => {
+          if (ok) toast(ex ? 'Client mis à jour dans le carnet.' : 'Client ajouté au carnet.');
+        });
       }
-      if (a === 'facturer') { persist(); openFacturer(doc); }
-      if (a === 'dup') { persist(); const c = BF.duplicate(state, doc); persist(); location.hash = '#/doc/' + c.id; toast(`Copie créée : ${e(c.numero)}`); }
-      if (a === 'print') { persist(); printDoc(doc); }
-      if (a === 'pdf') { persist(); downloadPdf(doc); }
+      if (a === 'facturer') { flush(); openFacturer(doc); }
+      if (a === 'dup') { flush(); duplicateDoc(doc); }
+      if (a === 'print') { flush(); printDoc(doc); }
+      if (a === 'pdf') { flush(); downloadPdf(doc); }
       if (a === 'delete') {
-        persist();
+        flush();
         openDelete(doc, (res) => {
           if (res === 'deleted') { lastEditorId = null; location.hash = listHash(doc.type); }
           if (res === 'annulee') { $('#ed-statut').value = 'annulee'; $('#ed-badge').innerHTML = badge(doc); refresh(); }
@@ -595,7 +636,9 @@
       if (del) {
         const c = state.clients.find((x) => x.id === del.dataset.del);
         if (c && confirm(`Retirer « ${c.nom} » du carnet ? Les devis et factures existants ne sont pas modifiés.`)) {
-          state.clients = state.clients.filter((x) => x !== c); persist(); viewClients();
+          state.clients = state.clients.filter((x) => x !== c);
+          sync(BF.api.deleteClient(c.id));
+          viewClients();
         }
       }
     };
@@ -621,9 +664,10 @@
       const data = {};
       $$('input[name]', dlg).forEach((i) => { data[i.name] = i.value.trim(); });
       if (!data.nom) { toast('Le nom du client est obligatoire.'); return; }
-      if (client) Object.assign(client, data); else state.clients.push(Object.assign({ id: BF.uid() }, data));
-      persist(); viewClients();
-      toast(client ? 'Client modifié.' : 'Client ajouté.');
+      const cl = client ? Object.assign(client, data) : Object.assign({ id: BF.uid() }, data);
+      if (!client) state.clients.push(cl);
+      viewClients();
+      sync(BF.api.saveClient(cl)).then((ok) => { if (ok) toast(client ? 'Client modifié.' : 'Client ajouté.'); });
     };
     dlg.showModal();
   }
@@ -681,58 +725,88 @@
           </div></section>
           <section class="panel" style="margin-top:16px"><div class="panel-b">
             <h2 class="section-t">Sauvegarde</h2>
-            <p class="muted" style="font-size:.92rem">Les données restent dans ce navigateur, sur cet ordinateur. Exportez régulièrement une sauvegarde (fichier .json) pour ne rien perdre ou pour passer sur un autre poste.</p>
+            <p class="muted" style="font-size:.92rem">Les données sont enregistrées sur le serveur et partagées entre tous les postes connectés. Vous pouvez en télécharger une copie (fichier .json), ou importer une sauvegarde de l'ancienne version locale de l'application.</p>
             <div class="btn-group">
               <button type="button" class="btn btn-secondary btn-sm" id="st-exp">Exporter la sauvegarde</button>
               <label class="btn btn-tertiary btn-sm" for="st-imp">Importer une sauvegarde</label>
               <input id="st-imp" type="file" accept="application/json,.json" hidden>
             </div>
           </div></section>
+          <section class="panel" style="margin-top:16px"><div class="panel-b">
+            <h2 class="section-t">Mon compte</h2>
+            <p class="muted" style="font-size:.92rem">Connecté en tant que <b>${e(state.user ? state.user.username : '')}</b>.</p>
+            <form id="st-pw" autocomplete="on">
+              <input type="text" name="username" autocomplete="username" value="${e(state.user ? state.user.username : '')}" hidden>
+              <div class="field"><label for="st-pw-cur">Mot de passe actuel</label><input id="st-pw-cur" type="password" class="input" autocomplete="current-password" required></div>
+              <div class="grid-2">
+                <div class="field"><label for="st-pw-new">Nouveau mot de passe <span class="hint">(8 caractères min.)</span></label><input id="st-pw-new" type="password" class="input" autocomplete="new-password" minlength="8" required></div>
+                <div class="field"><label for="st-pw-new2">Confirmer</label><input id="st-pw-new2" type="password" class="input" autocomplete="new-password" minlength="8" required></div>
+              </div>
+              <div class="btn-group">
+                <button type="submit" class="btn btn-secondary btn-sm">Changer le mot de passe</button>
+                <button type="button" class="btn btn-tertiary btn-sm" data-logout>Se déconnecter</button>
+              </div>
+            </form>
+          </div></section>
         </div>
       </div>`;
 
     const ex = () => { $('#st-num-ex').textContent = BF.formatNumero(s.numFormat, BF.todayISO(), 1); };
     ex();
+    const saveSettings = () => sync(BF.api.saveSettings(s));
     main.oninput = (ev) => {
       const t = ev.target; if (!t.dataset.s) return;
       setPath(s, t.dataset.s, t.dataset.num ? BF.parseNum(t.value) : t.value);
       ex();
-      persistSoon();
+      later('settings', saveSettings);
     };
     $('#st-logo-f').onchange = (ev) => {
       const file = ev.target.files[0]; if (!file) return;
       if (file.size > 1.5e6) { toast('Image trop lourde (1,5 Mo maximum).'); return; }
       const r = new FileReader();
-      r.onload = () => { s.logo = r.result; persist(); viewSettings(); toast('Logo mis à jour.'); };
+      r.onload = () => {
+        s.logo = r.result; flush();
+        saveSettings().then((ok) => { if (ok) toast('Logo mis à jour.'); });
+        viewSettings();
+      };
       r.readAsDataURL(file);
     };
     const reset = $('#st-logo-r');
-    if (reset) reset.onclick = () => { s.logo = null; persist(); viewSettings(); };
+    if (reset) reset.onclick = () => { s.logo = null; flush(); saveSettings(); viewSettings(); };
 
-    $('#st-exp').onclick = () => {
-      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `buildfrance-sauvegarde-${BF.todayISO()}.json`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    };
+    $('#st-exp').onclick = () => { flush(); location.assign('/api/export'); };
     $('#st-imp').onchange = (ev) => {
       const file = ev.target.files[0]; if (!file) return;
+      ev.target.value = '';
       const r = new FileReader();
-      r.onload = () => {
+      r.onload = async () => {
+        let data;
         try {
-          const data = JSON.parse(r.result);
+          data = JSON.parse(r.result);
           if (!Array.isArray(data.documents) || !data.settings) throw new Error('format');
-          if (!confirm(`Remplacer les données actuelles par cette sauvegarde (${data.documents.length} documents) ?`)) return;
-          localStorage.setItem(BF.KEY, JSON.stringify(data));
-          state = BF.load();
+        } catch (err) { toast("Fichier invalide : ce n'est pas une sauvegarde Build France."); return; }
+        if (!confirm(`Remplacer TOUTES les données du serveur (pour tous les utilisateurs) par cette sauvegarde (${data.documents.length} documents) ?`)) return;
+        flush();
+        try {
+          await BF.api.importAll(data);
+          state = await BF.api.loadState();
           toast('Sauvegarde importée.');
-          location.hash = '#/';
-          route();
-        } catch (err) { toast("Fichier invalide : ce n'est pas une sauvegarde Build France."); }
+          if (location.hash === '#/' || !location.hash) route(); else location.hash = '#/';
+        } catch (err) { fail(err); }
       };
       r.readAsText(file);
+    };
+
+    $('#st-pw').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const cur = $('#st-pw-cur').value;
+      const nw = $('#st-pw-new').value;
+      if (nw !== $('#st-pw-new2').value) { toast('Les deux nouveaux mots de passe ne correspondent pas.'); return; }
+      try {
+        await BF.api.changePassword(cur, nw);
+        ev.target.reset();
+        toast('Mot de passe modifié. Les autres sessions ont été déconnectées.');
+      } catch (err) { toast(e(err.message)); }
     };
   }
 
@@ -740,21 +814,31 @@
      Routage
      ========================================================= */
   function route() {
+    flush();
     // Un document créé puis laissé vide est supprimé en quittant l'éditeur
     const h = location.hash || '#/';
     if (lastEditorId && h !== '#/doc/' + lastEditorId) {
       const d = getDoc(lastEditorId);
-      if (isEmptyDoc(d)) { removeDoc(d.id); persist(); }
+      if (isEmptyDoc(d)) { removeDoc(d.id); sync(BF.api.deleteDoc(d.id)); }
       lastEditorId = null;
     }
-    main.onclick = null; main.oninput = null;
     window.scrollTo(0, 0);
+    render(h);
+    refreshIfChanged();
+  }
 
+  function render(h) {
+    main.onclick = null; main.oninput = null;
     let m;
     if ((m = h.match(/^#\/doc\/([\w-]+)/))) return viewEditor(m[1]);
     if ((m = h.match(/^#\/nouveau\/(devis|facture)/))) {
-      const d = BF.newDoc(state, m[1]); persist();
-      location.replace('#/doc/' + d.id);
+      const d = BF.newDoc(state, m[1]);
+      main.innerHTML = '<div class="panel empty">Création du document…</div>';
+      sync(BF.api.saveDoc(d)).then((ok) => {
+        if (ok) { location.replace('#/doc/' + d.id); return; }
+        removeDoc(d.id);
+        main.innerHTML = '<div class="panel empty">Impossible de créer le document. <a href="#/">Retour à l\'accueil</a></div>';
+      });
       return;
     }
     if (h.startsWith('#/devis')) return viewList('devis');
@@ -776,7 +860,48 @@
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && hd.classList.contains('open')) { setMenu(false); menuBtn.focus(); } });
   window.addEventListener('hashchange', () => setMenu(false));
 
-  window.addEventListener('hashchange', route);
-  window.addEventListener('storage', (ev) => { if (ev.key === BF.KEY) { state = BF.load(); route(); } });
-  route();
+  /* Données modifiées depuis un autre poste : rechargement (jamais pendant une saisie) */
+  let checking = false;
+  const quiet = () => !lastEditorId && !timers.size && !BF.api.busy() && !$('#dlg').open;
+  async function refreshIfChanged() {
+    if (checking || !state || !quiet()) return;
+    checking = true;
+    try {
+      if (await BF.api.changed() && quiet()) {
+        state = await BF.api.loadState();
+        if (quiet()) render(location.hash || '#/');
+      }
+    } catch (err) { console.warn(err); } finally { checking = false; }
+  }
+  window.addEventListener('focus', refreshIfChanged);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshIfChanged(); });
+
+  /* Avertit avant de fermer l'onglet si un enregistrement est en cours */
+  window.addEventListener('beforeunload', (ev) => {
+    if (timers.size || BF.api.busy()) { flush(); ev.preventDefault(); ev.returnValue = ''; }
+  });
+
+  /* Déconnexion */
+  document.addEventListener('click', async (ev) => {
+    if (!ev.target.closest('[data-logout]')) return;
+    flush();
+    try { await BF.api.logout(); } catch (err) { /* déjà déconnecté */ }
+    location.href = '/login';
+  });
+
+  /* Démarrage : chargement des données depuis le serveur */
+  (async function boot() {
+    main.innerHTML = '<div class="panel empty">Chargement…</div>';
+    try {
+      state = await BF.api.loadState();
+    } catch (err) {
+      main.innerHTML = `<div class="panel empty">Impossible de charger les données : ${e(err.message)}
+        <p><button class="btn btn-sm" type="button" onclick="location.reload()">Réessayer</button></p></div>`;
+      return;
+    }
+    const u = $('#ft-user');
+    if (u && state.user) u.innerHTML = `Connecté : <b>${e(state.user.username)}</b> · <button type="button" class="btn-link" data-logout>Se déconnecter</button>`;
+    window.addEventListener('hashchange', route);
+    route();
+  })();
 })(window.BF);

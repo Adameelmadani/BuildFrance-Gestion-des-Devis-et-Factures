@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Connexion - Build France Devis & Factures</title>
+  <link rel="icon" href="/assets/logo-header.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .login { max-width: 420px; width: 100%; margin: 48px auto; padding: 0 16px; flex: 1; }
+    .login-logo { display: block; max-width: 200px; margin: 0 auto 24px; }
+    .login h1 { font-size: 1.4rem; margin-bottom: 4px; }
+    .login .panel-b > p { color: var(--muted); margin: 0 0 20px; }
+    .login .btn { width: 100%; justify-content: center; margin-top: 8px; }
+    .login .alert { border-left-color: var(--red); background: #fdecec; }
+  </style>
+</head>
+<body>
+  <main class="login" id="main">
+    <img class="login-logo" src="/assets/logo-header.png" alt="Build France SAS">
+    <section class="panel"><div class="panel-b">
+      <h1>Connexion</h1>
+      <p>Espace de gestion des devis et factures</p>
+      <div class="alert" id="err" role="alert" hidden></div>
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="username">Identifiant</label>
+          <input id="username" name="username" class="input" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+        </div>
+        <div class="field">
+          <label for="password">Mot de passe</label>
+          <input id="password" name="password" type="password" class="input" autocomplete="current-password" required>
+        </div>
+        <button class="btn" type="submit" id="submit">Se connecter</button>
+      </form>
+    </div></section>
+  </main>
+  <script src="/js/api.js"></script>
+  <script src="/js/login.js"></script>
+</body>
+</html>
